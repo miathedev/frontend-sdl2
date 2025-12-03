@@ -60,6 +60,7 @@ endif()
 
 set(SDL2_LINKAGE "shared" CACHE STRING "Set to either shared or static to specify how libSDL2 should be linked. Defaults to shared.")
 option(ENABLE_FREETYPE "Use the Freetype font rendering library instead of the built-in stb_truetype if available" ON)
+option(ENABLE_VST_PLUGIN "Build the VST3/AU plugin version of projectM" OFF)
 
 
 set(PRESET_DIRS "" CACHE STRING "List of paths with presets. Will be installed in \"presets\" ")
@@ -90,6 +91,11 @@ include(ImGui.cmake)
 
 add_subdirectory(src)
 
+# Build VST plugin if enabled
+if(ENABLE_VST_PLUGIN)
+    add_subdirectory(src/vst-plugin)
+endif()
+
 if(ENABLE_TESTING)
     add_subdirectory(test)
 endif()
@@ -102,4 +108,7 @@ message(STATUS "Poco version: ${Poco_VERSION}")
 message(STATUS "projectM version: ${projectM4_VERSION}")
 if(Freetype_FOUND)
     message(STATUS "Freetype version: ${FREETYPE_VERSION_STRING}")
+endif()
+if(ENABLE_VST_PLUGIN)
+    message(STATUS "VST Plugin: Enabled")
 endif()
