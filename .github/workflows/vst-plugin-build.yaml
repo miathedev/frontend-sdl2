@@ -14,7 +14,7 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt update
-          sudo apt install build-essential libgl1-mesa-dev mesa-common-dev libsdl2-dev libpoco-dev ninja-build libssl-dev libasound2-dev libcurl4-openssl-dev libfreetype6-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libwebkit2gtk-4.0-dev
+          sudo apt install build-essential libgl1-mesa-dev mesa-common-dev libsdl2-dev libpoco-dev ninja-build libssl-dev libasound2-dev libcurl4-openssl-dev libfreetype6-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libwebkit2gtk-4.1-dev
 
       # We need to build/link Poco ourselves as static libraries, because Ubuntu Jammy ships with a broken Poco 1.11.0
       - name: Checkout Poco Sources
@@ -92,7 +92,7 @@ jobs:
           cmake --build "${{ github.workspace }}/cmake-build-libprojectm" --config Release --parallel
           cmake --install "${{ github.workspace }}/cmake-build-libprojectm" --config Release
 
-      - name: Checkout projectMSDL Sources
+      - name: Checkout frontend-sdl2 Sources
         uses: actions/checkout@v4
         with:
           path: frontend-sdl2
@@ -134,7 +134,7 @@ jobs:
           cmake --build "${{ github.workspace }}/cmake-build-libprojectm" --parallel
           cmake --install "${{ github.workspace }}/cmake-build-libprojectm"
 
-      - name: Checkout projectMSDL Sources
+      - name: Checkout frontend-sdl2 Sources
         uses: actions/checkout@v4
         with:
           path: frontend-sdl2

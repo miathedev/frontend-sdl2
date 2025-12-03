@@ -110,10 +110,24 @@ void ProjectMProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         buffer.clear(i, 0, buffer.getNumSamples());
 
     // Pass audio to projectM for visualization (mix down to mono)
-    const int numSamples = buffer.getNumSamples();
+    int numSamples = buffer.getNumSamples();
     
     if (numSamples > 0 && totalNumInputChannels > 0)
     {
+        // Bounds check to prevent buffer overflow
+        if (numSamples > static_cast<int>(AUDIO_BUFFER_SIZE))
+            numSamples = static_cast<int>(AUDIO_BUFFER_SIZE);
+
+        // Mix to mono in a temporary buffer (no locking required)
+        std::vector<float> monoSamples(static_cast<size_t>(numSamples));
+        const float* leftChannel = buffer.getReadPointer(0);
+        const float* rightChannel = (totalNumInputChannels > 1) ? buffer.getReadPointer(1) : leftChannel;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            monoSamples[static_cast<size_t>(i)] = (leftChannel[i] + rightChannel[i]) * 0.5f;
+        }
+
+        // Now lock only for the buffer write operation
         std::lock_guard<std::mutex> lock(_audioBufferMutex);
         
         // Make room for new samples by shifting existing data
@@ -125,15 +139,11 @@ void ProjectMProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                         samplesToKeep * sizeof(float));
         }
         
-        // Copy new samples to the end of the buffer (mix to mono)
+        // Copy new samples to the end of the buffer
         const size_t startIndex = (samplesToKeep > 0) ? samplesToKeep : 0;
-        const float* leftChannel = buffer.getReadPointer(0);
-        const float* rightChannel = (totalNumInputChannels > 1) ? buffer.getReadPointer(1) : leftChannel;
-        
         for (int i = 0; i < numSamples && (startIndex + static_cast<size_t>(i)) < AUDIO_BUFFER_SIZE; ++i)
         {
-            // Mix to mono
-            _audioBuffer[startIndex + static_cast<size_t>(i)] = (leftChannel[i] + rightChannel[i]) * 0.5f;
+            _audioBuffer[startIndex + static_cast<size_t>(i)] = monoSamples[static_cast<size_t>(i)];
         }
     }
 

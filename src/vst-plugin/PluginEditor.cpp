@@ -172,7 +172,7 @@ void ProjectMEditor::renderOpenGL()
     const int width = getWidth();
     const int height = getHeight() - CONTROL_PANEL_HEIGHT;
     
-    juce::gl::glViewport(0, CONTROL_PANEL_HEIGHT, width, height);
+    juce::gl::glViewport(0, 0, width, height);
 
     // Render projectM frame
     _projectMWrapper.renderFrame();
@@ -180,9 +180,10 @@ void ProjectMEditor::renderOpenGL()
     // Update FPS
     ++_frameCount;
     double currentTime = juce::Time::getMillisecondCounterHiRes() / 1000.0;
-    if (currentTime - _lastFrameTime >= 1.0)
+    double timeDiff = currentTime - _lastFrameTime;
+    if (timeDiff >= 1.0 && timeDiff > 0.0)
     {
-        _currentFps = static_cast<float>(_frameCount) / static_cast<float>(currentTime - _lastFrameTime);
+        _currentFps = static_cast<float>(_frameCount) / static_cast<float>(timeDiff);
         _frameCount = 0;
         _lastFrameTime = currentTime;
     }
@@ -268,7 +269,14 @@ void ProjectMEditor::onToggleLock()
 
 void ProjectMEditor::onOpenSettings()
 {
-    // Show a dialog for configuring preset paths
+    // Show a dialog for configuring preset paths using JUCE's safer async pattern
+    auto dialogOptions = juce::MessageBoxOptions()
+        .withIconType(juce::MessageBoxIconType::NoIcon)
+        .withTitle("projectM Settings")
+        .withMessage("Configure visualization settings")
+        .withButton("OK")
+        .withButton("Cancel");
+    
     auto* dialogWindow = new juce::AlertWindow("projectM Settings", 
                                                 "Configure visualization settings",
                                                 juce::MessageBoxIconType::NoIcon);
@@ -284,26 +292,33 @@ void ProjectMEditor::onOpenSettings()
     dialogWindow->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey));
     dialogWindow->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
 
+    // Use weak reference to safely handle the dialog
+    juce::Component::SafePointer<juce::AlertWindow> safeDialog(dialogWindow);
+    juce::Component::SafePointer<ProjectMEditor> safeThis(this);
+    
     dialogWindow->enterModalState(true, juce::ModalCallbackFunction::create(
-        [this, dialogWindow](int result)
+        [safeThis, safeDialog](int result)
         {
+            if (safeDialog == nullptr || safeThis == nullptr)
+                return;
+                
             if (result == 1)
             {
-                juce::String presetPath = dialogWindow->getTextEditorContents("presetPath");
-                juce::String texturePath = dialogWindow->getTextEditorContents("texturePath");
+                juce::String presetPath = safeDialog->getTextEditorContents("presetPath");
+                juce::String texturePath = safeDialog->getTextEditorContents("texturePath");
                 
                 if (presetPath.isNotEmpty())
                 {
-                    _projectMWrapper.setPresetPath(presetPath);
+                    safeThis->_projectMWrapper.setPresetPath(presetPath);
                 }
                 if (texturePath.isNotEmpty())
                 {
-                    _projectMWrapper.setTexturePath(texturePath);
+                    safeThis->_projectMWrapper.setTexturePath(texturePath);
                 }
                 
-                updatePresetLabel();
+                safeThis->updatePresetLabel();
             }
-            delete dialogWindow;
+            delete safeDialog.getComponent();
         }
     ), true);
 }

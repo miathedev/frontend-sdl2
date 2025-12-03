@@ -16,16 +16,24 @@ ProjectMVSTWrapper::ProjectMVSTWrapper()
 {
     // Default paths - users should configure these via settings
 #if JUCE_MAC
-    _presetPath = "~/Library/Application Support/projectM/presets";
-    _texturePath = "~/Library/Application Support/projectM/textures";
+    _presetPath = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+                      .getChildFile("Library/Application Support/projectM/presets")
+                      .getFullPathName();
+    _texturePath = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+                       .getChildFile("Library/Application Support/projectM/textures")
+                       .getFullPathName();
 #elif JUCE_WINDOWS
     _presetPath = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                       .getChildFile("projectM/presets").getFullPathName();
     _texturePath = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
                        .getChildFile("projectM/textures").getFullPathName();
 #else
-    _presetPath = "~/.config/projectM/presets";
-    _texturePath = "~/.config/projectM/textures";
+    _presetPath = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+                      .getChildFile(".config/projectM/presets")
+                      .getFullPathName();
+    _texturePath = juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+                       .getChildFile(".config/projectM/textures")
+                       .getFullPathName();
 #endif
 }
 
@@ -68,7 +76,8 @@ bool ProjectMVSTWrapper::initialize(int width, int height)
     juce::File textureDir(_texturePath);
     if (textureDir.isDirectory())
     {
-        const char* texturePaths[] = { _texturePath.toRawUTF8() };
+        std::string texturePathUtf8 = _texturePath.toStdString();
+        const char* texturePaths[] = { texturePathUtf8.c_str() };
         projectm_set_texture_search_paths(_projectM, texturePaths, 1);
     }
 
@@ -309,7 +318,8 @@ void ProjectMVSTWrapper::setTexturePath(const juce::String& path)
         juce::File textureDir(path);
         if (textureDir.isDirectory())
         {
-            const char* texturePaths[] = { path.toRawUTF8() };
+            std::string texturePathStr = path.toStdString();
+            const char* texturePaths[] = { texturePathStr.c_str() };
             projectm_set_texture_search_paths(_projectM, texturePaths, 1);
         }
     }
@@ -357,7 +367,7 @@ void ProjectMVSTWrapper::setTargetFPS(int fps)
 
 void ProjectMVSTWrapper::loadPresets()
 {
-    // Note: This should be called with _mutex already locked
+    // Note: This method must be called with _mutex already locked by the caller
 
     if (!_playlist)
         return;
@@ -365,7 +375,8 @@ void ProjectMVSTWrapper::loadPresets()
     juce::File presetDir(_presetPath);
     if (presetDir.isDirectory())
     {
-        projectm_playlist_add_path(_playlist, _presetPath.toRawUTF8(), true, false);
+        std::string presetPathStr = _presetPath.toStdString();
+        projectm_playlist_add_path(_playlist, presetPathStr.c_str(), true, false);
         projectm_playlist_sort(_playlist, 0, projectm_playlist_size(_playlist),
                                SORT_PREDICATE_FILENAME_ONLY, SORT_ORDER_ASCENDING);
     }
@@ -376,13 +387,17 @@ void ProjectMVSTWrapper::presetSwitchedCallback(bool /*isHardCut*/,
                                                  void* context)
 {
     auto* wrapper = static_cast<ProjectMVSTWrapper*>(context);
-    if (wrapper && wrapper->_playlist)
+    if (wrapper)
     {
-        char* name = projectm_playlist_item(wrapper->_playlist, index);
-        if (name)
+        std::lock_guard<std::mutex> lock(wrapper->_mutex);
+        if (wrapper->_playlist)
         {
-            wrapper->_currentPresetName = juce::String(name);
-            projectm_playlist_free_string(name);
+            char* name = projectm_playlist_item(wrapper->_playlist, index);
+            if (name)
+            {
+                wrapper->_currentPresetName = juce::String(name);
+                projectm_playlist_free_string(name);
+            }
         }
     }
 }
