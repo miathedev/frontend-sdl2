@@ -75,11 +75,3 @@ target_link_libraries(projectM-VST
 
 # Set C++ standard
 target_compile_features(projectM-VST PRIVATE cxx_std_17)
-
-# Platform-specific settings
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    set_target_properties(projectM-VST PROPERTIES
-        MACOSX_BUNDLE TRUE
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
-    )
-endif()
