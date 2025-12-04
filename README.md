@@ -1,11 +1,20 @@
 # ProjectM SDL2 Frontend
 
-This is a reference implementation of an applicatiaon that makes use of the projectM music visualization library.
+This is a reference implementation of an application that makes use of the projectM music visualization library.
 
 It will listen to audio input and produce mesmerizing visuals. Some commands are supported.
 
 This project is in a bit of a transition state and is in the process of being modernized. There are many rough edges at
 present.
+
+## Variants
+
+This repository includes two variants of the projectM frontend:
+
+1. **SDL2 Application** (default) - A standalone desktop application using SDL2
+2. **VST3/AU Plugin** - A plugin for use in Digital Audio Workstations (DAWs)
+
+For the VST plugin, see [src/vst-plugin/README.md](src/vst-plugin/README.md).
 
 ## Building from source
 
