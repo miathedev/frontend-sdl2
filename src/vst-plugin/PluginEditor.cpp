@@ -24,11 +24,20 @@ ProjectMEditor::ProjectMEditor(ProjectMProcessor& processor)
     // Create UI controls
     createControls();
 
-    // Set up OpenGL context
-    _openGLContext.setRenderer(this);
-    _openGLContext.setContinuousRepainting(true);
-    _openGLContext.setComponentPaintingEnabled(true);
-    _openGLContext.attachTo(*this);
+    // Set up OpenGL context with error handling
+    try
+    {
+        _openGLContext.setRenderer(this);
+        _openGLContext.setContinuousRepainting(true);
+        _openGLContext.setComponentPaintingEnabled(true);
+        _openGLContext.attachTo(*this);
+        _openGLAvailable = true;
+    }
+    catch (...)
+    {
+        // OpenGL context creation failed - fall back to non-OpenGL mode
+        _openGLAvailable = false;
+    }
 
     // Start timer for FPS updates and UI refresh
     startTimerHz(30);
@@ -37,7 +46,19 @@ ProjectMEditor::ProjectMEditor(ProjectMProcessor& processor)
 ProjectMEditor::~ProjectMEditor()
 {
     stopTimer();
-    _openGLContext.detach();
+    
+    // Safely detach OpenGL context
+    if (_openGLAvailable)
+    {
+        try
+        {
+            _openGLContext.detach();
+        }
+        catch (...)
+        {
+            // Ignore errors during cleanup
+        }
+    }
 }
 
 void ProjectMEditor::createControls()
@@ -93,6 +114,16 @@ void ProjectMEditor::paint(juce::Graphics& g)
     // Draw control panel background
     g.setColour(juce::Colour(0xff2a2a2a));
     g.fillRect(0, getHeight() - CONTROL_PANEL_HEIGHT, getWidth(), CONTROL_PANEL_HEIGHT);
+    
+    // If OpenGL is not available, show a message
+    if (!_openGLAvailable || !_isInitialized)
+    {
+        g.setColour(juce::Colours::white);
+        g.setFont(16.0f);
+        g.drawText(_openGLAvailable ? "Initializing visualization..." : "OpenGL not available",
+                   getLocalBounds().removeFromTop(getHeight() - CONTROL_PANEL_HEIGHT),
+                   juce::Justification::centred, true);
+    }
 }
 
 void ProjectMEditor::resized()
@@ -136,63 +167,94 @@ void ProjectMEditor::resized()
 
 void ProjectMEditor::newOpenGLContextCreated()
 {
-    // Initialize projectM in the OpenGL context
-    const int width = getWidth();
-    const int height = getHeight() - CONTROL_PANEL_HEIGHT;
-    
-    if (_projectMWrapper.initialize(width, height))
-    {
-        _isInitialized = true;
-        _lastWidth = width;
-        _lastHeight = height;
+    if (!_openGLAvailable)
+        return;
         
-        // Update preset label
-        juce::MessageManager::callAsync([this] {
-            updatePresetLabel();
-        });
+    try
+    {
+        // Initialize projectM in the OpenGL context
+        const int width = getWidth();
+        const int height = getHeight() - CONTROL_PANEL_HEIGHT;
+        
+        if (width > 0 && height > 0 && _projectMWrapper.initialize(width, height))
+        {
+            _isInitialized = true;
+            _lastWidth = width;
+            _lastHeight = height;
+            
+            // Update preset label safely
+            juce::Component::SafePointer<ProjectMEditor> safeThis(this);
+            juce::MessageManager::callAsync([safeThis] {
+                if (safeThis != nullptr)
+                    safeThis->updatePresetLabel();
+            });
+        }
+    }
+    catch (...)
+    {
+        // Handle any initialization errors gracefully
+        _isInitialized = false;
     }
 }
 
 void ProjectMEditor::renderOpenGL()
 {
-    if (!_isInitialized)
+    if (!_isInitialized || !_openGLAvailable)
         return;
 
-    // Get audio data from processor
-    _processor.getAudioBuffer(_audioBuffer);
-    
-    // Pass audio to projectM
-    if (!_audioBuffer.empty())
+    try
     {
-        _projectMWrapper.addAudioSamples(_audioBuffer.data(), 
-                                          static_cast<unsigned int>(_audioBuffer.size()));
+        // Get audio data from processor
+        _processor.getAudioBuffer(_audioBuffer);
+        
+        // Pass audio to projectM
+        if (!_audioBuffer.empty())
+        {
+            _projectMWrapper.addAudioSamples(_audioBuffer.data(), 
+                                              static_cast<unsigned int>(_audioBuffer.size()));
+        }
+
+        // Set viewport for visualization (above control panel)
+        const int width = getWidth();
+        const int height = getHeight() - CONTROL_PANEL_HEIGHT;
+        
+        if (width > 0 && height > 0)
+        {
+            juce::gl::glViewport(0, 0, width, height);
+
+            // Render projectM frame
+            _projectMWrapper.renderFrame();
+        }
+
+        // Update FPS
+        ++_frameCount;
+        double currentTime = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+        double timeDiff = currentTime - _lastFrameTime;
+        if (timeDiff >= 1.0 && timeDiff > 0.0)
+        {
+            _currentFps = static_cast<float>(_frameCount) / static_cast<float>(timeDiff);
+            _frameCount = 0;
+            _lastFrameTime = currentTime;
+        }
     }
-
-    // Set viewport for visualization (above control panel)
-    const int width = getWidth();
-    const int height = getHeight() - CONTROL_PANEL_HEIGHT;
-    
-    juce::gl::glViewport(0, 0, width, height);
-
-    // Render projectM frame
-    _projectMWrapper.renderFrame();
-
-    // Update FPS
-    ++_frameCount;
-    double currentTime = juce::Time::getMillisecondCounterHiRes() / 1000.0;
-    double timeDiff = currentTime - _lastFrameTime;
-    if (timeDiff >= 1.0 && timeDiff > 0.0)
+    catch (...)
     {
-        _currentFps = static_cast<float>(_frameCount) / static_cast<float>(timeDiff);
-        _frameCount = 0;
-        _lastFrameTime = currentTime;
+        // Handle rendering errors gracefully
     }
 }
 
 void ProjectMEditor::openGLContextClosing()
 {
     _isInitialized = false;
-    _projectMWrapper.shutdown();
+    
+    try
+    {
+        _projectMWrapper.shutdown();
+    }
+    catch (...)
+    {
+        // Handle shutdown errors gracefully
+    }
 }
 
 void ProjectMEditor::timerCallback()
@@ -231,8 +293,10 @@ void ProjectMEditor::onPrevPreset()
     if (_isInitialized)
     {
         _projectMWrapper.previousPreset();
-        juce::MessageManager::callAsync([this] {
-            updatePresetLabel();
+        juce::Component::SafePointer<ProjectMEditor> safeThis(this);
+        juce::MessageManager::callAsync([safeThis] {
+            if (safeThis != nullptr)
+                safeThis->updatePresetLabel();
         });
     }
 }
@@ -242,8 +306,10 @@ void ProjectMEditor::onNextPreset()
     if (_isInitialized)
     {
         _projectMWrapper.nextPreset();
-        juce::MessageManager::callAsync([this] {
-            updatePresetLabel();
+        juce::Component::SafePointer<ProjectMEditor> safeThis(this);
+        juce::MessageManager::callAsync([safeThis] {
+            if (safeThis != nullptr)
+                safeThis->updatePresetLabel();
         });
     }
 }
@@ -253,8 +319,10 @@ void ProjectMEditor::onRandomPreset()
     if (_isInitialized)
     {
         _projectMWrapper.randomPreset();
-        juce::MessageManager::callAsync([this] {
-            updatePresetLabel();
+        juce::Component::SafePointer<ProjectMEditor> safeThis(this);
+        juce::MessageManager::callAsync([safeThis] {
+            if (safeThis != nullptr)
+                safeThis->updatePresetLabel();
         });
     }
 }

@@ -49,79 +49,110 @@ bool ProjectMVSTWrapper::initialize(int width, int height)
     if (_isInitialized)
         return true;
 
+    // Validate dimensions
+    if (width <= 0 || height <= 0)
+        return false;
+
     _windowWidth = width;
     _windowHeight = height;
 
-    // Create projectM instance
-    _projectM = projectm_create();
-    if (!_projectM)
+    try
     {
+        // Create projectM instance
+        _projectM = projectm_create();
+        if (!_projectM)
+        {
+            return false;
+        }
+
+        // Configure projectM
+        projectm_set_window_size(_projectM, width, height);
+        projectm_set_fps(_projectM, static_cast<uint32_t>(_targetFPS));
+        projectm_set_mesh_size(_projectM, 48, 32);
+        projectm_set_aspect_correction(_projectM, true);
+        projectm_set_preset_locked(_projectM, false);
+        projectm_set_preset_duration(_projectM, 30.0);
+        projectm_set_soft_cut_duration(_projectM, 3.0);
+        projectm_set_hard_cut_enabled(_projectM, true);
+        projectm_set_hard_cut_duration(_projectM, 20.0);
+        projectm_set_hard_cut_sensitivity(_projectM, 1.0f);
+        projectm_set_beat_sensitivity(_projectM, _beatSensitivity);
+
+        // Set texture paths if available
+        juce::File textureDir(_texturePath);
+        if (textureDir.isDirectory())
+        {
+            std::string texturePathUtf8 = _texturePath.toStdString();
+            const char* texturePaths[] = { texturePathUtf8.c_str() };
+            projectm_set_texture_search_paths(_projectM, texturePaths, 1);
+        }
+
+        // Create playlist
+        _playlist = projectm_playlist_create(_projectM);
+        if (!_playlist)
+        {
+            projectm_destroy(_projectM);
+            _projectM = nullptr;
+            return false;
+        }
+
+        projectm_playlist_set_shuffle(_playlist, true);
+
+        // Set preset switch callback
+        projectm_playlist_set_preset_switched_event_callback(
+            _playlist, &ProjectMVSTWrapper::presetSwitchedCallback, this);
+
+        // Load presets
+        loadPresets();
+
+        // Start with first preset if available
+        if (projectm_playlist_size(_playlist) > 0)
+        {
+            projectm_playlist_set_position(_playlist, 0, true);
+        }
+
+        _isInitialized = true;
+        return true;
+    }
+    catch (...)
+    {
+        // Cleanup on error
+        if (_playlist)
+        {
+            projectm_playlist_destroy(_playlist);
+            _playlist = nullptr;
+        }
+        if (_projectM)
+        {
+            projectm_destroy(_projectM);
+            _projectM = nullptr;
+        }
         return false;
     }
-
-    // Configure projectM
-    projectm_set_window_size(_projectM, width, height);
-    projectm_set_fps(_projectM, static_cast<uint32_t>(_targetFPS));
-    projectm_set_mesh_size(_projectM, 48, 32);
-    projectm_set_aspect_correction(_projectM, true);
-    projectm_set_preset_locked(_projectM, false);
-    projectm_set_preset_duration(_projectM, 30.0);
-    projectm_set_soft_cut_duration(_projectM, 3.0);
-    projectm_set_hard_cut_enabled(_projectM, true);
-    projectm_set_hard_cut_duration(_projectM, 20.0);
-    projectm_set_hard_cut_sensitivity(_projectM, 1.0f);
-    projectm_set_beat_sensitivity(_projectM, _beatSensitivity);
-
-    // Set texture paths if available
-    juce::File textureDir(_texturePath);
-    if (textureDir.isDirectory())
-    {
-        std::string texturePathUtf8 = _texturePath.toStdString();
-        const char* texturePaths[] = { texturePathUtf8.c_str() };
-        projectm_set_texture_search_paths(_projectM, texturePaths, 1);
-    }
-
-    // Create playlist
-    _playlist = projectm_playlist_create(_projectM);
-    if (!_playlist)
-    {
-        projectm_destroy(_projectM);
-        _projectM = nullptr;
-        return false;
-    }
-
-    projectm_playlist_set_shuffle(_playlist, true);
-
-    // Set preset switch callback
-    projectm_playlist_set_preset_switched_event_callback(
-        _playlist, &ProjectMVSTWrapper::presetSwitchedCallback, this);
-
-    // Load presets
-    loadPresets();
-
-    // Start with first preset if available
-    if (projectm_playlist_size(_playlist) > 0)
-    {
-        projectm_playlist_set_position(_playlist, 0, true);
-    }
-
-    _isInitialized = true;
-    return true;
 }
 
 void ProjectMVSTWrapper::shutdown()
 {
     std::lock_guard<std::mutex> lock(_mutex);
 
-    if (_playlist)
+    try
     {
-        projectm_playlist_destroy(_playlist);
-        _playlist = nullptr;
-    }
+        if (_playlist)
+        {
+            projectm_playlist_destroy(_playlist);
+            _playlist = nullptr;
+        }
 
-    if (_projectM)
+        if (_projectM)
+        {
+            projectm_destroy(_projectM);
+            _projectM = nullptr;
+        }
+    }
+    catch (...)
     {
-        projectm_destroy(_projectM);
+        // Ensure pointers are nullified even on error
+        _playlist = nullptr;
         _projectM = nullptr;
     }
 
@@ -144,14 +175,21 @@ void ProjectMVSTWrapper::renderFrame()
 {
     std::lock_guard<std::mutex> lock(_mutex);
 
-    if (!_projectM)
+    if (!_projectM || !_isInitialized)
         return;
 
-    // Clear and render
-    juce::gl::glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    juce::gl::glClear(juce::gl::GL_COLOR_BUFFER_BIT | juce::gl::GL_DEPTH_BUFFER_BIT);
+    try
+    {
+        // Clear and render
+        juce::gl::glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        juce::gl::glClear(juce::gl::GL_COLOR_BUFFER_BIT | juce::gl::GL_DEPTH_BUFFER_BIT);
 
-    projectm_opengl_render_frame(_projectM);
+        projectm_opengl_render_frame(_projectM);
+    }
+    catch (...)
+    {
+        // Handle rendering errors gracefully
+    }
 }
 
 void ProjectMVSTWrapper::addAudioSamples(const float* samples, unsigned int count)

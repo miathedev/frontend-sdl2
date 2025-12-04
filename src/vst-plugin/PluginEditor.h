@@ -72,6 +72,7 @@ private:
     // State
     std::atomic<bool> _isInitialized{false};
     std::atomic<bool> _isLocked{false};
+    std::atomic<bool> _openGLAvailable{false};
     int _lastWidth{0};
     int _lastHeight{0};
 
